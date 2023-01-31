@@ -23,6 +23,10 @@ public:
     int decayY;
     std::string fate;
     int decayTime;
+    double expectation_x_term1; //for <x^2>
+    double expectation_x_term2; //for <x>^2
+    double expectation_y_term1; //for <y^2>
+    double expectation_y_term2; //for <y>^2
 
     Exciton(int X_pos, int Y_pos, bool active, std::string name){
         this->X_pos = X_pos;
@@ -49,16 +53,8 @@ std::mt19937 rng(rd());
 std::uniform_real_distribution<double> uni(0,1);
 
 //Nx and Ny determine the size of the grid
-const int Nx = 100;
-const int Ny = 100;
-
-//initialize functions
-double bivariate_gaussian(double x, double y);
-void spawn_exciton(double probability, int x, int y);
-bool decay_chance(int cycle_index, Exciton exciton);
-int randomNum1_4(void);
-Exciton move_exciton(int directionNum, Exciton exciton);
-
+const int Nx = 1000;
+const int Ny = 1000;
 
 //define the cell struct to store x and y points which we will access like ordered pairs
 struct cell{
@@ -66,30 +62,60 @@ struct cell{
     int y;
 };
 
+//Define struct to store variances along x and y
+struct variance{
+    double x_variance_struct;
+    double y_variance_struct;
+};
+
+//initialize functions
+double bivariate_gaussian(double x, double y);
+void spawn_exciton(double probability, int x, int y);
+bool decay_chance(Exciton exciton);
+int randomNum1_4(void);
+Exciton move_exciton(int directionNum, Exciton exciton);
+Exciton get_radii(Exciton exciton);
+variance calculate_variance(variance variance_total);
+
+
 int main(){
-    //CREATE FOLDER FOR THE SIMULATION OUTPUT
+    //CREATE FOLDERS FOR THE SIMULATION OUTPUT
     // Get current date and time
     std::time_t t = std::time(nullptr);
     char date_time[100];
     std::strftime(date_time, sizeof(date_time), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
 
     // Create directory path with unique name
-    string custom_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Data");
+    string positons_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Positons");
+    string variance_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Variance");
 
     // Check if the directory already exists or not
     struct stat st;
-    if (stat(custom_path.c_str(), &st) == 0) {
-        cout << "Error: Directory already exists \n";
+    if (stat(positons_path.c_str(), &st) == 0) {
+        cout << "Error: Positions directory already exists \n";
     } else {
-        // Create directory
-        int status = mkdir(custom_path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+        // Create position data directory
+        int status = mkdir(positons_path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         if (status == 0) {
-            cout << "Directory created successfully at " << custom_path << "\n";
+            cout << "Directory created successfully at " << positons_path << "\n";
+        } else {
+            cout << "Error creating directory: " << strerror(errno) << "\n";
+        }
+    }
+    //Check if directory exists or not
+    if (stat(variance_path.c_str(), &st) == 0) {
+        cout << "Error: Variance directory already exists \n";
+    } else {
+        // Create variance data directory
+        int status = mkdir(variance_path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+        if (status == 0) {
+            cout << "Directory created successfully at " << variance_path << "\n";
         } else {
             cout << "Error creating directory: " << strerror(errno) << "\n";
         }
     }
 
+    //TILE SIDELENGTH = 2nm
     //initialize the cell grid
     cell grid[Nx][Ny];
 
@@ -109,68 +135,57 @@ int main(){
             spawn_exciton(Gauss_height, grid[i][j].x, grid[i][j].y);
         }   
     }
-// Create the file name and path
-string file_path = custom_path + "/Excitons_0.csv";
 
-std::ofstream excitonFile;
-excitonFile.open(file_path);
-
-//Write headers for columns
-excitonFile << "X_pos, Y_pos, \n";
-
-//Cycle through each exciton in the active exciton list
-for (int i=0; i<active_Excitons.size(); i++){
-    //Write values for each exciton into the appropriate column
-    excitonFile << active_Excitons.at(i).X_pos << ", " << active_Excitons.at(i).Y_pos << "\n";
-}
-excitonFile.close();
+//define variables for the main loop
 int index1 = 1;
+double x_expectation_value_sum = 0;
+double x_squared_expectation_value_sum = 0;
+double y_expectation_value_sum = 0;
+double y_squared_expectation_value_sum = 0;
+variance variance_total;
+double simulation_time = 0;
 
-    //MAIN LOOP
+//Define variance file outside the loop (cause we only want 1 variance file)
+string file_path_var = variance_path + "/Variance.csv";
+std::ofstream varianceFile;
+varianceFile.open(file_path_var);
+// Write headers for columns
+varianceFile << "Variance, Time, \n";
+
+//get the initial radii of all excitons for the t=0 variance calculation
+for (int i = 0; i < active_Excitons.size(); i++) {
+    //Get exciton radii to calculate the variance
+    active_Excitons.at(i) = get_radii(active_Excitons.at(i));
+}
+
+    //MAIN LOOP (53,846 cycles = 1 nanosecond)
     int j=0;
-    while (j<4000){
-        //Chance to decay randomly
-
-        //check if other excitons are nearby and run annihilation function if so
-
+    while (j<10000){
         //Get the total # of living excitons
         int exciton_population_size = active_Excitons.size();
 
-        //Cycle through all living excitons
-        for (int i = 0; i < exciton_population_size; i++) {
-            //Check to see if the exciton has decayed, if so, don't run the time evolution code block
-            if (active_Excitons.at(i).active){
-                //Generate a random number between 1 and 4
-                int randomDirection;
-                randomDirection = randomNum1_4();
+        //Get the variance for this cycle and get the average between x and y variance (since it's ~symmetric)
+        variance_total = calculate_variance(variance_total);
 
-                //Move the exciton in a totally random direction
-                active_Excitons.at(i) = move_exciton(randomDirection, active_Excitons.at(i));
+        double variance_average = (variance_total.x_variance_struct + variance_total.y_variance_struct)/2;
 
-                //Add 1 to the number of cycles the exciton has been alive
-                active_Excitons.at(i).decayTime++;
-            }
-        }
-        //Delete dead excitons from the system
-        int index = 0;
-        for (int i = 0; i < active_Excitons.size(); i++) {
-            if (active_Excitons[i].active == true) {
-                std::swap(active_Excitons[index], active_Excitons[i]);
-                index++;
-            }
-        }
-        active_Excitons.erase(active_Excitons.begin() + index, active_Excitons.end());
-        if (j%25 == 0){
-        //DATA STORAGE
+        //cout<<"avg variance: "<<variance_average<<"\n";
+
+        //Store the average variance in the variance file every iteration along with the cycle number it was from
+        varianceFile << variance_average << ", " << simulation_time << "\n";
+       
+        if (j%999999 == 0){
+        //POSITION DATA STORAGE
         // Create a new csv file for the exciton locations
-        string file_path = custom_path + "/Excitons_";
+        string file_path_pos = positons_path + "/Excitons_";
+        
         //Add a 1 to the end of the data name for each output (impractical temporary solution to Rstudio bug)
         for (int i=0; i<index1; i++){
-            file_path += std::to_string(1);
+            file_path_pos += std::to_string(1);
         }
-        file_path += std::to_string(1) + ".csv"; 
+        file_path_pos += + ".csv"; 
         std::ofstream excitonFile;
-        excitonFile.open(file_path);
+        excitonFile.open(file_path_pos);
 
         // Write headers for columns
         excitonFile << "X_pos, Y_pos, \n";
@@ -184,19 +199,66 @@ int index1 = 1;
         excitonFile.close();
         index1++;
         }
+        
+        //Chance to decay randomly
+
+        //check if other excitons are nearby and run annihilation function if so
+
+        //Set new gaussian variance calculation variables to 0 (allows for new calculation in the main loop)
+        x_expectation_value_sum = 0;
+        x_squared_expectation_value_sum = 0;
+        y_expectation_value_sum = 0;
+        y_squared_expectation_value_sum = 0;
+        variance_total.x_variance_struct = 0;
+        variance_total.y_variance_struct = 0;
+
+        //Cycle through all living excitons
+        for (int i = 0; i < exciton_population_size; i++) {
+            //Get exciton radii to calculate the variance
+            active_Excitons.at(i) = get_radii(active_Excitons.at(i));
+
+            //Check to see if the exciton has decayed, if so, don't run the time evolution code block
+            if (active_Excitons.at(i).active){
+                //Generate a random number between 1 and 4
+                int randomDirection;
+                randomDirection = randomNum1_4();
+
+                //Move the exciton in a totally random direction
+                active_Excitons.at(i) = move_exciton(randomDirection, active_Excitons.at(i));
+
+                //Add 1 to the number of cycles the exciton has been alive
+                active_Excitons.at(i).decayTime++;
+            }
+        }
+        
+        
+        //Delete dead excitons from the system
+        int index = 0;
+        for (int i = 0; i < active_Excitons.size(); i++) {
+            if (active_Excitons[i].active == true) {
+                std::swap(active_Excitons[index], active_Excitons[i]);
+                index++;
+            }
+        }
+        active_Excitons.erase(active_Excitons.begin() + index, active_Excitons.end());
+        
         //increase while-loop index
         j++;
+        //increase time by unit (1 cycle = 1.857 * 10^-5 nanoseconds)
+        simulation_time += (1.857)*(10^(-5));
     }
+    varianceFile.close();
+    cout<<"Simulated "<<simulation_time<<" nanoseconds of diffusion \n";
 
 }
-//This function generates our gaussian distribution stamp
+//This function generates our gaussian distribution stamp for 1 grid point
 double bivariate_gaussian(double x, double y) {
     //Bivariate gaussian parameters
-    const double A = 1.0; // amplitude (if A =/= 1 then statistics will break)
+    const double A = 1.0; // amplitude (if A != 1 then statistics will break)
     const double x0 = (Nx-1)/2.0; // center x -- default to halfway along x grid
     const double y0 = (Ny-1)/2.0; // center y -- default to halfway along x grid (this centers the laser impulse at the center of the grid)
-    const double sigma_x = Nx / 4.0; // standard deviation along x-axis
-    const double sigma_y = Ny / 4.0; // standard deviation along y-axis
+    const double sigma_x = 15; // standard deviation along x-axis
+    const double sigma_y = 15; // standard deviation along y-axis
     double exponent = -((x - x0) * (x - x0) / (2 * sigma_x * sigma_x) + (y - y0) * (y - y0) / (2 * sigma_y * sigma_y));
 
     //return the height of the bivariate gaussian at the point (x,y)
@@ -301,7 +363,7 @@ Exciton move_exciton(int directionNum, Exciton exciton){
 }
 
 
-bool decay_chance(int cycle_index, Exciton exciton){
+bool decay_chance(Exciton exciton){
     //randomly generate a number between 1 and 100 (or whatever the spontaneous decay rate is going to be)
     int randDecayNum;
     std::random_device rd;
@@ -322,6 +384,60 @@ bool decay_chance(int cycle_index, Exciton exciton){
         return false;
     }
 }
+
+Exciton get_radii(Exciton exciton){
+    double x = exciton.X_pos;
+    double y = exciton.Y_pos;
+
+    //get gaussian center coordinates
+    const double x0 = (Nx-1)/2.0;
+    const double y0 = (Ny-1)/2.0;
+
+    //Get distance from center along x
+    exciton.expectation_x_term1 = (x - x0)*(x - x0);
+    exciton.expectation_x_term2 = (x - x0);
+
+    //Get distance from center along y
+    exciton.expectation_y_term1 = (y - y0)*(y - y0);
+    exciton.expectation_y_term2 = (y - y0);
+
+    // cout<<"x_term1: "<<exciton.expectation_x_term1<<"\n x_term_2: "<<exciton.expectation_x_term2<<"\n";
+    // cout<<"y_term1: "<<exciton.expectation_y_term1<<"\n y_term_2: "<<exciton.expectation_y_term2<<"\n";
+
+    return exciton;
+}
+
+variance calculate_variance(variance variance_total){
+    double sum_x_term1 = 0.0;
+    double sum_x_term2 = 0.0;
+    double sum_y_term1 = 0.0;
+    double sum_y_term2 = 0.0;
+    double num_excitons = active_Excitons.size();
+
+    for(int i=0; i<num_excitons; i++){
+        Exciton exciton = active_Excitons[i];
+        sum_x_term1 += exciton.expectation_x_term1;
+        sum_x_term2 += exciton.expectation_x_term2;
+        sum_y_term1 += exciton.expectation_y_term1;
+        sum_y_term2 += exciton.expectation_y_term2;
+    }
+
+
+    //Calculate variance along x
+    double mean_x_term1 = sum_x_term1/num_excitons;
+    double mean_x_term2 = sum_x_term2/num_excitons;
+    variance_total.x_variance_struct = mean_x_term1 - (mean_x_term2 * mean_x_term2);
+
+    //Calculate variance along y
+    double mean_y_term1 = sum_y_term1/num_excitons;
+    double mean_y_term2 = sum_y_term2/num_excitons;
+    variance_total.y_variance_struct = mean_y_term1 - (mean_y_term2 * mean_y_term2);
+    
+    return variance_total;
+}
+
+
+
 
  //TEST/DEBUG FUNCTIONS
 
