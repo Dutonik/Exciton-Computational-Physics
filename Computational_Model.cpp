@@ -115,7 +115,7 @@ int main(){
         }
     }
 
-    //TILE SIDELENGTH = 2nm
+    //TILE SIDELENGTH = 20nm
     //initialize the cell grid
     cell grid[Nx][Ny];
 
@@ -144,6 +144,7 @@ double y_expectation_value_sum = 0;
 double y_squared_expectation_value_sum = 0;
 variance variance_total;
 double simulation_time = 0;
+double converted_variance_average = 0;
 
 //Define variance file outside the loop (cause we only want 1 variance file)
 string file_path_var = variance_path + "/Variance.csv";
@@ -158,9 +159,9 @@ for (int i = 0; i < active_Excitons.size(); i++) {
     active_Excitons.at(i) = get_radii(active_Excitons.at(i));
 }
 
-    //MAIN LOOP (53,846 cycles = 1 nanosecond)
+    //MAIN LOOP (1,263 cycles = 1 nanosecond)
     int j=0;
-    while (j<10000){
+    while (j<885){
         //Get the total # of living excitons
         int exciton_population_size = active_Excitons.size();
 
@@ -169,10 +170,13 @@ for (int i = 0; i < active_Excitons.size(); i++) {
 
         double variance_average = (variance_total.x_variance_struct + variance_total.y_variance_struct)/2;
 
+        //convert variance from units of tiles (:= 400nm^2) to square micrometers
+        converted_variance_average = variance_average*0.0004;
+
         //cout<<"avg variance: "<<variance_average<<"\n";
 
         //Store the average variance in the variance file every iteration along with the cycle number it was from
-        varianceFile << variance_average << ", " << simulation_time << "\n";
+        varianceFile << converted_variance_average << ", " << simulation_time << "\n";
        
         if (j%999999 == 0){
         //POSITION DATA STORAGE
@@ -244,12 +248,11 @@ for (int i = 0; i < active_Excitons.size(); i++) {
         
         //increase while-loop index
         j++;
-        //increase time by unit (1 cycle = 1.857 * 10^-5 nanoseconds)
-        simulation_time += (1.857)*(10^(-5));
+        //increase time by unit (1 cycle = 7.9177e-4 nanoseconds)
+        simulation_time += 0.001695;
     }
     varianceFile.close();
     cout<<"Simulated "<<simulation_time<<" nanoseconds of diffusion \n";
-
 }
 //This function generates our gaussian distribution stamp for 1 grid point
 double bivariate_gaussian(double x, double y) {
@@ -257,8 +260,8 @@ double bivariate_gaussian(double x, double y) {
     const double A = 1.0; // amplitude (if A != 1 then statistics will break)
     const double x0 = (Nx-1)/2.0; // center x -- default to halfway along x grid
     const double y0 = (Ny-1)/2.0; // center y -- default to halfway along x grid (this centers the laser impulse at the center of the grid)
-    const double sigma_x = 15; // standard deviation along x-axis
-    const double sigma_y = 15; // standard deviation along y-axis
+    const double sigma_x = 21.2; // standard deviation along x-axis
+    const double sigma_y = 21.1; // standard deviation along y-axis
     double exponent = -((x - x0) * (x - x0) / (2 * sigma_x * sigma_x) + (y - y0) * (y - y0) / (2 * sigma_y * sigma_y));
 
     //return the height of the bivariate gaussian at the point (x,y)
