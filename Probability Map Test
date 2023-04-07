@@ -49,6 +49,9 @@ int spawn_index = 0;
 //Global strain attraction parameter
 const double K_sA = 10;
 
+//Turn on/off whether or not you want to count excitons in region1 (false=off)
+bool region1 = true;
+
 //Define the active exciton list. This is what will keep track of the "living" exciton population
 vector<Exciton> active_Excitons;
 
@@ -88,6 +91,8 @@ struct variance{
     double y_variance_struct;
 };
 
+
+
 //initialize functions
 double bivariate_gaussian(double x, double y);
 void spawn_exciton(double probability, int x, int y);
@@ -97,6 +102,7 @@ Exciton move_exciton(int directionNum, Exciton exciton);
 int weightedRandomNum1_4(double P_right, double P_up, double P_left, double P_down);
 Exciton get_radii(Exciton exciton);
 variance calculate_variance(variance variance_total);
+double exciton_density_region_analysis1(void);
 
 
 int main(){
@@ -110,6 +116,7 @@ int main(){
     // Create directory path with unique name
     string positons_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Positons");
     string variance_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Variance");
+    string regional_density_path1 = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" eDensity1");
 
     // Check if the directory already exists or not
     struct stat st;
@@ -132,6 +139,20 @@ int main(){
         int status = mkdir(variance_path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         if (status == 0) {
             cout << "Directory created successfully at " << variance_path << "\n";
+        } else {
+            cout << "Error creating directory: " << strerror(errno) << "\n";
+        }
+    }
+
+
+    //Check if directory exists or not
+    if (stat(regional_density_path1.c_str(), &st) == 0) {
+        cout << "Error: Variance directory already exists \n";
+    } else {
+        // Create variance data directory
+        int status = mkdir(regional_density_path1.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+        if (status == 0) {
+            cout << "Directory created successfully at " << regional_density_path1 << "\n";
         } else {
             cout << "Error creating directory: " << strerror(errno) << "\n";
         }
@@ -265,10 +286,7 @@ variance variance_total;
 double simulation_time = 0;
 double converted_variance_average = 0;
 
-//Define cell struct for the strained tile (Obsolete I think)
-//cell detected_strainCell;
-//vector<cell> strained_tiles;
-
+//CREATE EXTERNAL FILES THAT
 //Define variance file outside the loop (cause we only want 1 variance file)
 string file_path_var = variance_path + "/Variance.csv";
 std::ofstream varianceFile;
@@ -276,7 +294,16 @@ varianceFile.open(file_path_var);
 // Write headers for columns
 varianceFile << "Variance, Time, \n";
 
-//get the initial radii of all excitons for the t=0 variance calculation
+
+//Define regional density file outside the loop (cause we only want 1 variance file)
+string file_path_var2 = regional_density_path1 + "/Exciton_Regional_Density.csv";
+std::ofstream RegionalDensityFile1;
+RegionalDensityFile1.open(file_path_var2);
+// Write headers for columns
+RegionalDensityFile1 << "Density, Time, \n";
+
+
+//get the initial radii of all excitons
 for (int i = 0; i < active_Excitons.size(); i++) {
     //Get exciton radii to calculate the variance
     active_Excitons.at(i) = get_radii(active_Excitons.at(i));
@@ -284,7 +311,7 @@ for (int i = 0; i < active_Excitons.size(); i++) {
 
 //MAIN LOOP (590 cycles = 1 nanosecond, 885 cycles = 1.5ns)
 int j=0;
-while (j<590){
+while (j<500){
 
     //Get the total # of living excitons
     int exciton_population_size = active_Excitons.size();
@@ -301,6 +328,19 @@ while (j<590){
 
     //Store the average variance in the variance file every iteration along with the cycle number it was from
     varianceFile << converted_variance_average << ", " << simulation_time << "\n";
+
+
+    //REGIONAL EXCITON DENSITY CALCULATION (switch on/off -- region1 bool -- see global vars)
+        //Customize the region boundaries by editing the exciton_density_region_analysis1 function
+    if (region1){
+        //Get the density of excitons in units of [excitons/unit tile]
+        double Region1_density = exciton_density_region_analysis1();
+
+        //Store the average variance in the variance file every iteration along with the cycle number it was from
+        RegionalDensityFile1 << Region1_density << ", " << simulation_time << "\n";
+    }
+
+    
 
     if (j%5 == 0){
         //POSITION DATA STORAGE
@@ -382,6 +422,8 @@ while (j<590){
 }
 
     varianceFile.close();
+    RegionalDensityFile1.close();
+
     cout<<"Simulated "<<simulation_time<<" nanoseconds of diffusion \n";
 
 }
@@ -589,6 +631,51 @@ variance calculate_variance(variance variance_total){
     
     return variance_total;
 }
+
+double exciton_density_region_analysis1(void){
+
+    //Customize parameters of region
+    
+    //Set the boundaries of the region (should not exceed bounds of the Nx by Ny region)
+    const int x_min = 30;
+    const int x_max = 50;
+    const int y_min = 30;
+    const int y_max = 50;
+    
+    // Calculate the total area of the region
+    double region_width = x_max - x_min;
+    double region_height = y_max - y_min;
+    double area = region_width * region_height;
+
+    if (area == 0){
+        cout<<"ERROR: zero area \n";
+        return NAN;
+    }
+
+    double num_excitons_in_region = 0;
+
+    //Check all excitons to see which are in the region and then count them
+    for (int n=0; n<active_Excitons.size(); n++){
+        if (active_Excitons.at(n).X_pos <= x_max){
+            if (active_Excitons.at(n).X_pos >= x_min){
+                if (active_Excitons.at(n).Y_pos <= y_max){
+                    if (active_Excitons.at(n).Y_pos >= y_min){
+                        num_excitons_in_region += 1;
+
+                    }
+                }
+            }
+        }
+    }
+
+    double density_of_excitons = num_excitons_in_region/area;
+
+    cout<<"Density = "<<num_excitons_in_region<<"/"<<area<<" = "<<density_of_excitons<<endl;
+
+    return density_of_excitons;
+
+}
+
 
 
 
