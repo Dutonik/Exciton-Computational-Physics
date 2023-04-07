@@ -28,15 +28,14 @@ public:
     double expectation_x_term2; //for <x>^2
     double expectation_y_term1; //for <y^2>
     double expectation_y_term2; //for <y>^2
-    bool strain_dectection;
+    
 
-    Exciton(int X_pos, int Y_pos, bool active, std::string name, bool strain_dectection){
+    Exciton(int X_pos, int Y_pos, bool active, std::string name){
         this->X_pos = X_pos;
         this->Y_pos = Y_pos;
         this->active = active;
         this->name = name;
         decayTime=0;
-        this->strain_dectection = strain_dectection;
     }
 };
 
@@ -47,8 +46,14 @@ using std::string;
 using std::vector;
 int spawn_index = 0;
 
-//Strain attraction parameter
-const double K_sA = 500;
+//Global strain attraction parameter
+const double K_sA = 10;
+
+//Turn on/off whether or not you want to count excitons in region1 (false=off)
+bool region1 = true;
+
+//Turn on/off dimensionless units (false = off)
+bool dimensionless = false;
 
 //Define the active exciton list. This is what will keep track of the "living" exciton population
 vector<Exciton> active_Excitons;
@@ -66,7 +71,21 @@ const int Ny = 100;
 struct cell{
     int x;
     int y;
+    //Is this tile strained (set strained tiles manually)
     bool strained;
+    double P_left;
+    double P_right;
+    double P_up;
+    double P_down;
+    //Parameter for width of gaussian potential well (manually set the width of the well in the initialization loop)
+    double sigma_strained;
+    //Parameter for depth(amplitude) of gaussian potential well (manually set in the initialization loop)
+    double amplitude;
+
+    //Total force and total force componenets for probability calculations
+    double F_net;
+    double F_net_x;
+    double F_net_y;
 };
 
 //Define struct to store variances along x and y
@@ -75,18 +94,22 @@ struct variance{
     double y_variance_struct;
 };
 
+
+
 //initialize functions
 double bivariate_gaussian(double x, double y);
 void spawn_exciton(double probability, int x, int y);
 Exciton decay_chance(Exciton exciton);
 int randomNum1_4(void);
 Exciton move_exciton(int directionNum, Exciton exciton);
+int weightedRandomNum1_4(double P_right, double P_up, double P_left, double P_down);
 Exciton get_radii(Exciton exciton);
 variance calculate_variance(variance variance_total);
-int weightedRandomNum1_4(double P_right, double P_up, double P_left, double P_down);
+double exciton_density_region_analysis1(void);
 
 
 int main(){
+    
     //CREATE FOLDERS FOR THE SIMULATION OUTPUT
     // Get current date and time
     std::time_t t = std::time(nullptr);
@@ -96,6 +119,7 @@ int main(){
     // Create directory path with unique name
     string positons_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Positons");
     string variance_path = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" Variance");
+    string regional_density_path1 = "/Users/david/Desktop/C++/Exciton Research/Heat Map R/" + string(date_time) + string(" eDensity1");
 
     // Check if the directory already exists or not
     struct stat st;
@@ -123,9 +147,26 @@ int main(){
         }
     }
 
+
+    //Check if directory exists or not
+    if (stat(regional_density_path1.c_str(), &st) == 0) {
+        cout << "Error: Variance directory already exists \n";
+    } else {
+        // Create variance data directory
+        int status = mkdir(regional_density_path1.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
+        if (status == 0) {
+            cout << "Directory created successfully at " << regional_density_path1 << "\n";
+        } else {
+            cout << "Error creating directory: " << strerror(errno) << "\n";
+        }
+    }
+    
+
 //TILE SIDELENGTH = 20nm
 //initialize the cell grid
 cell grid[Nx][Ny];
+
+vector<cell> strained_tiles;
 
 //Cycle through every point on the grid (INITIALIZATION LOOP) this loop runs only once
 for (int i = 0; i < Nx; i++) {
@@ -135,22 +176,32 @@ for (int i = 0; i < Nx; i++) {
         grid[i][j].y = j;
         grid[i][j].strained = false; // Default: unstrained tile
         
+        /*
         // Manually set strained regions
+        if (i == 20 && j == 40) {
+            grid[i][j].strained = true;
+            //Set width of potential well
+            grid[i][j].sigma_strained = 7;
+            //Set depth of the potential well (1 is default)
+            grid[i][j].amplitude = 1;
+
+            strained_tiles.push_back(grid[i][j]);
+
+        }
         if (i == 20 && j == 20) {
             grid[i][j].strained = true;
+            grid[i][j].sigma_strained = 7;
+            grid[i][j].amplitude = 1;
+            strained_tiles.push_back(grid[i][j]);
         }
-        if (i == 80 && j == 20) {
+
+        if (i == 80 && j == 75) {
             grid[i][j].strained = true;
+            grid[i][j].sigma_strained = 7;
+            grid[i][j].amplitude = 1;
+            strained_tiles.push_back(grid[i][j]);
         }
-        if (i == 20 && j == 80) {
-            grid[i][j].strained = true;
-        }
-        if (i == 80 && j == 80) {
-            grid[i][j].strained = true;
-        }
-        
-        
-    
+        */
 
         // Default spawn probability is 0
         double Gauss_height = 0;
@@ -160,14 +211,67 @@ for (int i = 0; i < Nx; i++) {
         //determine whether or not an exciton spawns based on the statistical distribution (from bivariate gaussian)
         spawn_exciton(Gauss_height, grid[i][j].x, grid[i][j].y);
         
-        //Instantiate test excitons
-        //Exciton test_exciton1(40,40,true,"george",true);
-
-        //Add the exciton to the list of active (not decayed) excitons
-        //active_Excitons.push_back(test_exciton1);
     }   
 }
 
+//POTENTIAL ENERGY LANDSCAPE INITILIZATION
+//Calculate how nearby strained regions impact excitons on each tile
+for (int i = 0; i < Nx; i++) {
+    for (int j = 0; j < Ny; j++) {
+        //Calculate the force applied on the tile by all strained regions
+        for (int q = 0; q < strained_tiles.size(); q++) {
+            double xDiff = strained_tiles.at(q).x - grid[i][j].x;
+            double yDiff = strained_tiles.at(q).y - grid[i][j].y;
+            double radius_strain = sqrt(((xDiff * xDiff) + (yDiff * yDiff)));
+
+            //Calculate force experienced by excitons on the tile by strained_tile(q)
+
+            double force_gaussian_exponent = -( (radius_strain * radius_strain) / (2 * strained_tiles.at(q).sigma_strained * strained_tiles.at(q).sigma_strained)); 
+
+            double Force_Strained_q = K_sA*strained_tiles.at(q).amplitude*(pow(2.71828, force_gaussian_exponent));
+
+            //Calculate components of force
+            double F_x = Force_Strained_q*(xDiff/radius_strain);
+            double F_y = Force_Strained_q*(yDiff/radius_strain);
+
+            //Add net force and net force components to the struct elements of that tile
+            grid[i][j].F_net += Force_Strained_q;
+            grid[i][j].F_net_x += F_x;
+            grid[i][j].F_net_y += F_y;
+        }
+
+        //Calculate the probability of exciton motion from total force on the tile from all strained regions
+        double Force_normalizer = abs(grid[i][j].F_net_x) + abs(grid[i][j].F_net_y);
+
+        if (grid[i][j].F_net_x < 0){
+
+                //Calculate probability of exciton moving left on this tile (normalized by denominator)
+                grid[i][j].P_left = (1 - grid[i][j].F_net_x)/(4 + Force_normalizer);
+                grid[i][j].P_right = 1/(4 + Force_normalizer);
+            }
+
+            if (grid[i][j].F_net_x >= 0){
+
+                //Calculate probability of exciton moving left on this tile (normalized by denominator)
+                grid[i][j].P_right = (1 + grid[i][j].F_net_x)/(4 + Force_normalizer);
+                grid[i][j].P_left = 1/(4 + Force_normalizer);
+            }
+
+            if (grid[i][j].F_net_y < 0){
+
+                //Calculate probability of exciton moving down on this tile (normalized by denominator)
+                grid[i][j].P_down = (1 - grid[i][j].F_net_y)/(4 + Force_normalizer);
+                grid[i][j].P_up = 1/(4 + Force_normalizer);
+            }
+
+            if (grid[i][j].F_net_y >= 0){
+
+                //Calculate probability of exciton moving down on this tile (normalized by denominator)
+                grid[i][j].P_up = (1 + grid[i][j].F_net_y)/(4 + Force_normalizer);
+                grid[i][j].P_down = 1/(4 + Force_normalizer);
+            }
+    }
+}
 
 //define variables for the main loop
 int index1 = 1;
@@ -179,13 +283,7 @@ variance variance_total;
 double simulation_time = 0;
 double converted_variance_average = 0;
 
-double F_right, F_left, F_up, F_down, F_net;
-double P_right, P_left, P_up, P_down;
-
-//Define cell struct for the strained tile
-cell detected_strainCell;
-vector<cell> strained_tiles;
-
+//CREATE EXTERNAL FILES THAT
 //Define variance file outside the loop (cause we only want 1 variance file)
 string file_path_var = variance_path + "/Variance.csv";
 std::ofstream varianceFile;
@@ -193,32 +291,57 @@ varianceFile.open(file_path_var);
 // Write headers for columns
 varianceFile << "Variance, Time, \n";
 
-//get the initial radii of all excitons for the t=0 variance calculation
+
+//Define regional density file outside the loop (cause we only want 1 variance file)
+string file_path_var2 = regional_density_path1 + "/Exciton_Regional_Density.csv";
+std::ofstream RegionalDensityFile1;
+RegionalDensityFile1.open(file_path_var2);
+// Write headers for columns
+RegionalDensityFile1 << "Density, Time, \n";
+
+
+//get the initial radii of all excitons
 for (int i = 0; i < active_Excitons.size(); i++) {
     //Get exciton radii to calculate the variance
     active_Excitons.at(i) = get_radii(active_Excitons.at(i));
 }
 
-    //MAIN LOOP (590 cycles = 1 nanosecond, 885 cycles = 1.5ns)
-    int j=0;
-    while (j<500){
-        //Get the total # of living excitons
-        int exciton_population_size = active_Excitons.size();
+//MAIN LOOP (590 cycles = 1 nanosecond, 885 cycles = 1.5ns)
+int j=0;
+while (j<500){
 
-        //Get the variance for this cycle and get the average between x and y variance (since it's ~symmetric)
-        variance_total = calculate_variance(variance_total);
+    //Get the total # of living excitons
+    int exciton_population_size = active_Excitons.size();
 
-        double variance_average = (variance_total.x_variance_struct + variance_total.y_variance_struct)/2;
+    //Get the variance for this cycle and get the average between x and y variance (since it's ~symmetric)
+    variance_total = calculate_variance(variance_total);
 
+    double variance_average = (variance_total.x_variance_struct + variance_total.y_variance_struct)/2;
+
+    if (dimensionless == false){
         //convert variance from units of tiles (:= 400nm^2) to square micrometers
-        converted_variance_average = variance_average*0.0004;
+        variance_average *= 0.0004;
+    }
 
-        //cout<<"avg variance: "<<variance_average<<"\n";
+    //cout<<"avg variance: "<<variance_average<<"\n";
+
+    //Store the average variance in the variance file every iteration along with the cycle number it was from
+    varianceFile << variance_average << ", " << simulation_time << "\n";
+
+
+    //REGIONAL EXCITON DENSITY CALCULATION (switch on/off -- region1 bool -- see global vars)
+        //Customize the region boundaries by editing the exciton_density_region_analysis1 function
+    if (region1){
+        //Get the density of excitons in units of [excitons/unit tile]
+        double Region1_density = exciton_density_region_analysis1();
 
         //Store the average variance in the variance file every iteration along with the cycle number it was from
-        varianceFile << converted_variance_average << ", " << simulation_time << "\n";
-       
-        if (j%5 == 0){
+        RegionalDensityFile1 << Region1_density << ", " << simulation_time << "\n";
+    }
+
+    
+
+    if (j%5 == 0){
         //POSITION DATA STORAGE
         // Create a new csv file for the exciton locations
         string file_path_pos = positons_path + "/Excitons_";
@@ -243,7 +366,7 @@ for (int i = 0; i < active_Excitons.size(); i++) {
         excitonFile.close();
         index1++;
         }
-        
+    
         //Set new gaussian variance calculation variables to 0 (allows for new calculation in the main loop)
         x_expectation_value_sum = 0;
         x_squared_expectation_value_sum = 0;
@@ -251,165 +374,36 @@ for (int i = 0; i < active_Excitons.size(); i++) {
         y_squared_expectation_value_sum = 0;
         variance_total.x_variance_struct = 0;
         variance_total.y_variance_struct = 0;
-        
-        //Cycle through all living excitons
-        for (int i = 0; i < exciton_population_size; i++) {
-//TURNING OFF RANDOM DECAY AND ANNIHILATION 
-/*
-            //Chance to decay randomly
-            active_Excitons.at(i) = decay_chance(active_Excitons.at(i));
-            
-            //Recombination check (destroy two active excitons if they share the same tile)
-            for (int k = 0; k < exciton_population_size; k++) {
-                if (active_Excitons.at(i).active && active_Excitons.at(k).active){
-                    if(active_Excitons.at(i).name != active_Excitons.at(k).name){
-                        if (active_Excitons.at(i).X_pos == active_Excitons.at(k).X_pos && active_Excitons.at(i).Y_pos == active_Excitons.at(k).Y_pos){
-                            //cout<<"Destroyed "<< active_Excitons.at(i).name<<" and "<<active_Excitons.at(k).name<<"\n";
-                            //cout<<active_Excitons.at(i).name<<" coordinates are ("<<active_Excitons.at(i).X_pos<<","<<active_Excitons.at(i).Y_pos<<") and "<<active_Excitons.at(k).name<<" coordinates are ("<<active_Excitons.at(k).X_pos<<","<<active_Excitons.at(k).Y_pos<<") \n";
-                            active_Excitons.at(i).active = false;
-                            active_Excitons.at(k).active = false;
 
-                            //Store time of death stats
-                            active_Excitons.at(i).decayX = active_Excitons.at(i).X_pos;
-                            active_Excitons.at(i).decayY = active_Excitons.at(i).Y_pos;
-                            active_Excitons.at(i).fate = "Recombination";
-                            active_Excitons.at(k).decayX = active_Excitons.at(k).X_pos;
-                            active_Excitons.at(k).decayY = active_Excitons.at(k).Y_pos;
-                            active_Excitons.at(k).fate = "Recombination";
-                        }
-                    }
-                }
-            }
-            */
-        //REMOVE TRAPPED EXCITONS FROM THE SYSTEM
-        // if (active_Excitons.at(i).X_pos == 20 && active_Excitons.at(i).Y_pos == 80){
-        //     active_Excitons.at(i).active = false;
-        //     active_Excitons.at(i).fate = "Trapped in strain";
-
-        // }
-        // if (active_Excitons.at(i).X_pos == 80 && active_Excitons.at(i).Y_pos == 20){
-        //     active_Excitons.at(i).active = false;
-        //     active_Excitons.at(i).fate = "Trapped in strain";
-        // }
-        // if (active_Excitons.at(i).X_pos == 80 && active_Excitons.at(i).Y_pos == 80){
-        //     active_Excitons.at(i).active = false;
-        //     active_Excitons.at(i).fate = "Trapped in strain";
-        // }
-        // if (active_Excitons.at(i).X_pos == 20 && active_Excitons.at(i).Y_pos == 20){
-        //     active_Excitons.at(i).active = false;
-        //     active_Excitons.at(i).fate = "Trapped in strain";
-        // }
-        
-        //STRAINED EVOLUTION
+    //Cycle through all living excitons
+    for (int i = 0; i < exciton_population_size; i++) {
         if (active_Excitons.at(i).active){
-            //Search for nearby strained regions (default 1 tile=20nm)
-            //Get the exciton's cell location
-            int centerSearch_X = active_Excitons.at(i).X_pos;
-            int centerSearch_Y = active_Excitons.at(i).Y_pos;
-            //Search the nearest 10 tiles in all directions
-            for (int x = centerSearch_X - 30; x <= centerSearch_X + 30; x++) {
-                for (int y = centerSearch_Y - 30; y <= centerSearch_Y + 30; y++) {
-                    // Check if the current tile is within the bounds of the grid
-                    if (x >= 0 && x < Nx && y >= 0 && y < Ny) {
-                        // Check if the current tile is strained
-                        if (grid[x][y].strained == true) {
-                            //cout << "Detected nearby strain at (" << x << "," << y << ")\n";
 
-                            //identify the strained tile
-                            detected_strainCell.x = grid[x][y].x;
-                            detected_strainCell.y = grid[x][y].y;
-                            detected_strainCell.strained = true;
-                            
-                            // Add the strained tile to a list or perform some other action
-                            strained_tiles.push_back(detected_strainCell);
-                        }
-                    }
-                }
-            }
-            //cout<<"block 1 done \n";
-            if (strained_tiles.size() == 0){
-                active_Excitons.at(i).strain_dectection = false;
-            }
-            else{
-                //Reset forces to 0 for a new calculation
-                F_down = 0;
-                F_up = 0;
-                F_right = 0;
-                F_left = 0;
-                for (int q = 0; q < strained_tiles.size(); q++) {
-                    double xDiff = strained_tiles.at(q).x - active_Excitons.at(i).X_pos;
-                    double yDiff = strained_tiles.at(q).y - active_Excitons.at(i).Y_pos;
-                    double radius_strain = sqrt(((xDiff * xDiff) + (yDiff * yDiff)));
-                    
-                    //calculate "force" along the up,down,left,right axes
-                    if (xDiff < 0) {
-                        //multiply by -1 to make F positive
-                        F_left += (K_sA * xDiff * -1)/(radius_strain * radius_strain * radius_strain);            
-                    } 
-                    else if (xDiff > 0){
-                        F_right += (K_sA * xDiff)/(radius_strain * radius_strain * radius_strain);
-                    }
+            //Determine which way the exciton will move based on probabiilities associated with the tile it's on
+                //Instead of grid[i][j] I'm getting the coordinates of the exciton's X and Y positions since those will match that of the tile it's on and putting that into the [i][j] arguments
+            int Movement_direction = weightedRandomNum1_4(grid[active_Excitons.at(i).X_pos][active_Excitons.at(i).Y_pos].P_right, 
+            grid[active_Excitons.at(i).X_pos][active_Excitons.at(i).Y_pos].P_up, grid[active_Excitons.at(i).X_pos][active_Excitons.at(i).Y_pos].P_left,
+            grid[active_Excitons.at(i).X_pos][active_Excitons.at(i).Y_pos].P_down);
 
-                    if (yDiff < 0) {
-                        //multiply by -1 to make F positive
-                        F_down += (K_sA * yDiff * -1)/(radius_strain * radius_strain * radius_strain);
-                    } 
-                    else if (yDiff > 0){
-                        F_up += (K_sA * yDiff)/(radius_strain * radius_strain * radius_strain);
-                    }
-                }   
-            
-            F_net = F_right + F_down + F_left + F_up;
-            //calculate probability of moving in a direction
-            P_right = (1 + F_right)/(4 + F_net);
-            P_left = (1 + F_left)/(4 + F_net);
-            P_up = (1 + F_up)/(4 + F_net);
-            P_down = (1 + F_down)/(4 + F_net);
+            //Move the exciton's position on the grid
+            active_Excitons.at(i) = move_exciton(Movement_direction, active_Excitons.at(i));
 
-            //cout<<"P_r= "<<P_right<<", P_u= "<<P_up<<"P_l= "<<P_left<<", P_d= "<<P_down<<"\n";
-
-            //Randomly generate with integer from 1 to 4 with those weighted probabilities
-            int random_strained_direction;
-            random_strained_direction = weightedRandomNum1_4(P_right, P_up, P_left, P_down);
-
-            //Move the exciton
-            active_Excitons.at(i) = move_exciton(random_strained_direction, active_Excitons.at(i));
+            //cout<<"Geoge moved to: ("<<active_Excitons.at(i).X_pos<<", "<<active_Excitons.at(i).Y_pos<<")"<<endl;
 
             //Add 1 to the number of cycles the exciton has been alive
             active_Excitons.at(i).decayTime++;
 
-            }
-        }
-        //Reset detected tiles for the next exciton
-        strained_tiles.clear();
-        
-        //RANDOM EVOLUTION (for unstrained or no nearby strain detected)
-        if (active_Excitons.at(i).strain_dectection == false){
+            //Update exciton radii to calculate the variance
+            active_Excitons.at(i) = get_radii(active_Excitons.at(i));
 
-            //Check to see if the exciton has decayed, if so, don't run the time evolution code block 
-            if (active_Excitons.at(i).active){
-                //Generate a random number between 1 and 4
-                int randomDirection;
-                randomDirection = randomNum1_4();
-
-                //Move the exciton in a totally random direction
-                active_Excitons.at(i) = move_exciton(randomDirection, active_Excitons.at(i));
-
-                //Add 1 to the number of cycles the exciton has been alive
-                active_Excitons.at(i).decayTime++;
-
-                //cout<<"Moved randomly"<<endl;
-            }
             
-        }
-        //Update exciton radii to calculate the variance
-        active_Excitons.at(i) = get_radii(active_Excitons.at(i));
 
-        //reset strain detection (allows us to go do a new scan every cycle)
-        active_Excitons.at(i).strain_dectection = true;
-    }
+        }
+
         
-        //Delete dead excitons from the system
+    }
+
+    //Delete dead excitons from the system
         int index = 0;
         for (int i = 0; i < active_Excitons.size(); i++) {
             if (active_Excitons[i].active == true) {
@@ -422,11 +416,28 @@ for (int i = 0; i < active_Excitons.size(); i++) {
         //increase while-loop index
         j++;
         //increase time by 1 unit (1 cycle = 0.001695 nanoseconds)
-        simulation_time += 0.001695;
-    }
-    varianceFile.close();
-    cout<<"Simulated "<<simulation_time<<" nanoseconds of diffusion \n";
+        if (dimensionless == false){
+            simulation_time += 0.001695;
+        }
+        else{
+            //Use unit cycles for time in the dimensionless case
+            simulation_time += 1;
+        }
+
 }
+
+    varianceFile.close();
+    RegionalDensityFile1.close();
+
+    if (dimensionless == false){
+        cout<<"Simulated "<<simulation_time<<" nanoseconds of diffusion \n";
+    }
+    else{
+        cout<<"Simulated "<<simulation_time<<" simulation cycles \n";
+    }
+}
+
+
 //This function generates our gaussian distribution stamp for 1 grid point
 double bivariate_gaussian(double x, double y) {
     //Bivariate gaussian parameters
@@ -460,7 +471,7 @@ void spawn_exciton(double probability, int x, int y){
         spawn_index++;
 
         //Instantiate unique exciton object using the label we just generated
-        Exciton exciton(x,y,true,exciton_name,true);
+        Exciton exciton(x,y,true,exciton_name);
 
         //Add the exciton to the list of active (not decayed) excitons
         active_Excitons.push_back(exciton);
@@ -564,6 +575,7 @@ Exciton decay_chance(Exciton exciton){
     std::uniform_int_distribution<int> dist(1, 500);
     randDecayNum = dist(mt);
 
+    //If we roll a 1, the exciton spontaneously decays
     if (randDecayNum == 1){
         exciton.active = false;
         exciton.decayX = exciton.X_pos;
@@ -629,3 +641,81 @@ variance calculate_variance(variance variance_total){
     return variance_total;
 }
 
+double exciton_density_region_analysis1(void){
+
+    //Customize parameters of region
+    
+    //Set the boundaries of the region (should not exceed bounds of the Nx by Ny region)
+    const int x_min = 30;
+    const int x_max = 50;
+    const int y_min = 30;
+    const int y_max = 50;
+    
+    // Calculate the total area of the region
+    double region_width = x_max - x_min;
+    double region_height = y_max - y_min;
+    double area = region_width * region_height;
+
+    if (area == 0){
+        cout<<"ERROR: zero area \n";
+        return NAN;
+    }
+
+    double num_excitons_in_region = 0;
+
+    //Check all excitons to see which are in the region and then count them
+    for (int n=0; n<active_Excitons.size(); n++){
+        if (active_Excitons.at(n).X_pos <= x_max){
+            if (active_Excitons.at(n).X_pos >= x_min){
+                if (active_Excitons.at(n).Y_pos <= y_max){
+                    if (active_Excitons.at(n).Y_pos >= y_min){
+                        num_excitons_in_region += 1;
+
+                    }
+                }
+            }
+        }
+    }
+
+    double density_of_excitons = num_excitons_in_region/area;
+
+    //cout<<"Density = "<<num_excitons_in_region<<"/"<<area<<" = "<<density_of_excitons<<endl;
+
+    return density_of_excitons;
+
+}
+
+
+
+
+
+/*
+double total = grid[25][49].P_left + grid[25][49].P_right + grid[25][49].P_up + grid[25][49].P_down;
+
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_left of "<<grid[25][49].P_left<<endl;
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_right of "<<grid[25][49].P_right<<endl;
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_up of "<<grid[25][49].P_up<<endl;
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_down of "<<grid[25][49].P_down<<endl;
+
+cout<<"Sum of probabilities: "<<total<<endl;
+
+*/
+
+
+/*
+for (int i=0; i<20; i++){
+//RANDOM EXCITON MOTION
+
+cout<<"("<<active_Excitons.at(0).X_pos<<", "<<active_Excitons.at(0).Y_pos<<") \n";
+int random_move_num = randomNum1_4();
+active_Excitons.at(0) = move_exciton(random_move_num, active_Excitons.at(0));
+}
+*/
+
+
+//SINGLE TEST EXCITON
+//Instantiate test exciton(s) [I put it in this so that the exciton is only instantiated once, not a very clean way to code, David]
+//Exciton test_exciton1(20,30,true,"George");
+
+//Add the exciton to the list of active (not decayed) excitons
+//active_Excitons.push_back(test_exciton1);
