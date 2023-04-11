@@ -53,7 +53,7 @@ const double K_sA = 10;
 bool region1 = true;
 
 //Turn on/off dimensionless units (false = off)
-bool dimensionless = false;
+bool dimensionless = true;
 
 //Define the active exciton list. This is what will keep track of the "living" exciton population
 vector<Exciton> active_Excitons;
@@ -308,7 +308,7 @@ for (int i = 0; i < active_Excitons.size(); i++) {
 
 //MAIN LOOP (590 cycles = 1 nanosecond, 885 cycles = 1.5ns)
 int j=0;
-while (j<500){
+while (j<590){
 
     //Get the total # of living excitons
     int exciton_population_size = active_Excitons.size();
@@ -692,11 +692,17 @@ double exciton_density_region_analysis1(void){
 /*
 double total = grid[25][49].P_left + grid[25][49].P_right + grid[25][49].P_up + grid[25][49].P_down;
 
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has F_net of "<<grid[25][49].force<<endl;
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has F_x of "<<grid[25][49].F_x<<endl;
+cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has F_y of "<<grid[25][49].F_y<<endl;
+
 cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_left of "<<grid[25][49].P_left<<endl;
 cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_right of "<<grid[25][49].P_right<<endl;
 cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_up of "<<grid[25][49].P_up<<endl;
 cout<<"Tile: ("<<grid[23][41].x<<", "<<grid[23][41].y<<") has P_down of "<<grid[25][49].P_down<<endl;
 
+
+//So clearly there is an issue regarding the way I've gotten the force components
 cout<<"Sum of probabilities: "<<total<<endl;
 
 */
